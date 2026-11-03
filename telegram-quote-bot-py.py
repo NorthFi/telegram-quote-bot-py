@@ -1,3 +1,4 @@
+# root/telegram-quote-bot-py.py
 import os
 import re
 import time
@@ -12,8 +13,8 @@ load_dotenv()  # Load env vars from a .env file if present
 
 # === Configuration ===
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN")
-CHAT_IDS = os.getenv("CHAT_IDS", "YOUR_CHAT_IDS").split(",")  # comma separated list
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
+CHAT_IDS = [chat.strip() for chat in os.getenv("CHAT_IDS", "").split(",") if chat.strip()]  # comma-separated IDs
 
 QUOTES_FILE = os.getenv("QUOTES_FILE", "quotes.txt")
 INDEX_FILE = os.getenv("INDEX_FILE", "current_index.txt")
@@ -54,8 +55,13 @@ def load_index(filename):
             return 0
 
 def save_index(filename, idx):
-    with open(filename, "w") as f:
+    # Persist the cursor atomically so an interrupted write cannot truncate it.
+    temp_path = f"{filename}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as f:
         f.write(str(idx))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, filename)
 
 def escape_markdown_v2(text):
     escape_chars = r'_*[]()~`>#+-=|{}.!'
@@ -83,13 +89,16 @@ def send_telegram_message(token, chat_id, text):
                 return False, str(e)
 
 def main():
+    if not BOT_TOKEN or not CHAT_IDS:
+        logging.error("BOT_TOKEN and at least one CHAT_IDS entry are required.")
+        raise SystemExit("Set BOT_TOKEN and CHAT_IDS before running the bot.")
     quotes = load_quotes(QUOTES_FILE)
     if not quotes:
         logging.error("No quotes found. Exiting.")
         return
 
     current_index = load_index(INDEX_FILE)
-    if current_index >= len(quotes):
+    if current_index < 0 or current_index >= len(quotes):
         current_index = 0
 
     quote_raw = quotes[current_index]
